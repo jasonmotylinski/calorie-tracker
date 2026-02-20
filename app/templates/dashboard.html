@@ -103,7 +103,9 @@
                 <div class="meal-entry">
                     <div class="meal-entry-info">
                         <span class="meal-entry-name">{{ entry.food_item.name }}</span>
+                        {% if entry.food_item.source != 'quick_add' %}
                         <span class="meal-entry-serving">{{ entry.servings }} serving{{ 's' if entry.servings != 1 }}</span>
+                        {% endif %}
                     </div>
                     <div class="meal-entry-right">
                         <span class="meal-entry-cal">{{ entry.calories|int }}</span>

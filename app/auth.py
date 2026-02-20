@@ -21,7 +21,7 @@ def register():
         user.set_password(form.password.data)
         db.session.add(user)
         db.session.commit()
-        login_user(user)
+        login_user(user, remember=True)
         flash('Account created! Set your calorie goals to get started.', 'success')
         return redirect(url_for('main.settings'))
 
@@ -37,7 +37,7 @@ def login():
     if form.validate_on_submit():
         user = User.query.filter_by(email=form.email.data).first()
         if user and user.check_password(form.password.data):
-            login_user(user)
+            login_user(user, remember=True)
             next_page = request.args.get('next')
             return redirect(next_page or url_for('main.dashboard'))
         flash('Invalid email or password.', 'danger')

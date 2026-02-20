@@ -21,3 +21,11 @@ def log(food_item_id):
                            food_item_id=food_item_id,
                            meal_type=meal_type,
                            date=date_str)
+
+
+@food_bp.route('/quick-add')
+@login_required
+def quick_add():
+    meal_type = request.args.get('meal', 'snack')
+    date_str = request.args.get('date', '')
+    return render_template('food/quick_add.html', meal_type=meal_type, date=date_str)

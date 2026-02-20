@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initDashboard();
     initFoodSearch();
     initFoodLog();
+    initQuickAdd();
     initSettings();
 });
 
@@ -282,6 +283,60 @@ function initFoodLog() {
         } catch (err) {
             submitBtn.disabled = false;
             submitBtn.textContent = 'Log Food';
+        }
+    });
+}
+
+/* ---- Quick Add ---- */
+function initQuickAdd() {
+    const page = document.querySelector('.quick-add-page');
+    if (!page) return;
+
+    const mealType = page.dataset.mealType;
+    const date = page.dataset.date;
+    const caloriesInput = document.getElementById('quick-calories');
+    const nameInput = document.getElementById('quick-name');
+    const submitBtn = document.getElementById('quick-add-submit');
+    const errorEl = document.getElementById('quick-add-error');
+
+    submitBtn.addEventListener('click', async () => {
+        const calories = parseFloat(caloriesInput.value);
+        if (!calories || calories <= 0) {
+            errorEl.textContent = 'Please enter a calories amount greater than 0.';
+            errorEl.classList.remove('hidden');
+            caloriesInput.focus();
+            return;
+        }
+        errorEl.classList.add('hidden');
+
+        const selectedMeal = document.querySelector('input[name="meal_type"]:checked');
+        const mt = selectedMeal ? selectedMeal.value : mealType;
+        const name = nameInput.value.trim();
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Adding...';
+
+        try {
+            const resp = await fetch('/api/log/quick', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ calories, name, meal_type: mt, date }),
+            });
+
+            if (resp.ok) {
+                window.location.href = `/dashboard?date=${date}`;
+            } else {
+                const err = await resp.json();
+                errorEl.textContent = err.error || 'Something went wrong.';
+                errorEl.classList.remove('hidden');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Add Calories';
+            }
+        } catch (err) {
+            errorEl.textContent = 'Something went wrong. Please try again.';
+            errorEl.classList.remove('hidden');
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Add Calories';
         }
     });
 }

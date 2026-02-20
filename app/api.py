@@ -187,6 +187,60 @@ def update_goals():
     return jsonify(current_user.to_dict())
 
 
+@api_bp.route('/log/quick', methods=['POST'])
+@login_required
+def create_quick_log():
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+
+    try:
+        calories = float(data.get('calories', 0))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Invalid calories value'}), 400
+
+    if calories <= 0:
+        return jsonify({'error': 'Calories must be greater than 0'}), 400
+
+    name = (data.get('name') or '').strip() or 'Quick Add'
+    meal_type = data.get('meal_type', 'snack')
+    if meal_type not in ('breakfast', 'lunch', 'dinner', 'snack'):
+        return jsonify({'error': 'Invalid meal type'}), 400
+
+    log_date = data.get('date', date.today().isoformat())
+    try:
+        log_date = date.fromisoformat(log_date)
+    except ValueError:
+        return jsonify({'error': 'Invalid date format'}), 400
+
+    food_item = FoodItem(
+        name=name,
+        source='quick_add',
+        calories=round(calories, 1),
+        protein_g=0,
+        carbs_g=0,
+        fat_g=0,
+    )
+    db.session.add(food_item)
+    db.session.flush()
+
+    log = FoodLog(
+        user_id=current_user.id,
+        food_item_id=food_item.id,
+        meal_type=meal_type,
+        servings=1,
+        logged_date=log_date,
+        calories=round(calories, 1),
+        protein_g=0,
+        carbs_g=0,
+        fat_g=0,
+    )
+    db.session.add(log)
+    db.session.commit()
+
+    return jsonify(log.to_dict()), 201
+
+
 @api_bp.route('/foods/recent')
 @login_required
 def recent_foods():
@@ -197,7 +251,7 @@ def recent_foods():
     seen = set()
     items = []
     for log in recent_logs:
-        if log.food_item_id not in seen:
+        if log.food_item_id not in seen and log.food_item.source != 'quick_add':
             seen.add(log.food_item_id)
             items.append(log.food_item.to_dict())
     return jsonify({'items': items})
