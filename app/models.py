@@ -89,10 +89,12 @@ class FoodItem(db.Model):
 
 
 class UsdaFood(db.Model):
-    """USDA SR Legacy food database. All nutrient values are per 100g."""
-    ndb_no = db.Column(db.String(10), primary_key=True)
+    """OpenNutrition food database. All nutrient values are per 100g."""
+    food_id = db.Column(db.String(30), primary_key=True)
     name = db.Column(db.String(300), nullable=False, index=True)
-    food_group = db.Column(db.String(100))
+    food_type = db.Column(db.String(20))          # everyday, grocery, restaurant, prepared
+    alternate_names = db.Column(db.Text)           # space-joined aliases for search
+    barcode = db.Column(db.String(20), index=True) # EAN-13 for future barcode scanning
     calories = db.Column(db.Float, default=0)
     protein_g = db.Column(db.Float, default=0)
     carbs_g = db.Column(db.Float, default=0)
@@ -102,14 +104,14 @@ class UsdaFood(db.Model):
     serving_weight_g = db.Column(db.Float)
 
     def to_search_result(self):
-        """Return a dict shaped like the old API search result."""
+        """Return a dict shaped like the API search result."""
         serving_g = self.serving_weight_g or 100
         scale = serving_g / 100
         return {
-            'name': self.name.title(),
-            'brand': self.food_group,
-            'source': 'usda',
-            'source_id': self.ndb_no,
+            'name': self.name,
+            'brand': None,
+            'source': 'opennutrition',
+            'source_id': self.food_id,
             'calories': round((self.calories or 0) * scale, 1),
             'protein_g': round((self.protein_g or 0) * scale, 1),
             'carbs_g': round((self.carbs_g or 0) * scale, 1),

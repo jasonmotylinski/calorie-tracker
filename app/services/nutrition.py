@@ -120,12 +120,14 @@ def _stem(word):
 
 
 def _word_filter(word):
-    """Match a word OR its stemmed form."""
+    """Match a word OR its stemmed form, across name and alternate_names."""
     stem = _stem(word)
-    if stem != word.lower():
-        return sa.or_(UsdaFood.name.ilike(f'%{word}%'),
-                      UsdaFood.name.ilike(f'%{stem}%'))
-    return UsdaFood.name.ilike(f'%{word}%')
+    terms = {word.lower(), stem}
+    clauses = []
+    for t in terms:
+        clauses.append(UsdaFood.name.ilike(f'%{t}%'))
+        clauses.append(UsdaFood.alternate_names.ilike(f'%{t}%'))
+    return sa.or_(*clauses)
 
 
 def _build_query(words):
@@ -138,19 +140,34 @@ def _build_query(words):
 def _relevance_order(words):
     first_stem = _stem(words[0])
     first_word = words[0].lower()
-    return sa.case(
+
+    # Primary: food_type — everyday staples first, then restaurant, then grocery
+    type_rank = sa.case(
+        (UsdaFood.food_type == 'everyday', 0),
+        (UsdaFood.food_type == 'prepared', 1),
+        (UsdaFood.food_type == 'restaurant', 2),
+        else_=3,  # grocery
+    )
+
+    # Secondary: how closely the name starts with the search term
+    name_rank = sa.case(
+        (sa.or_(UsdaFood.name.ilike(f'{first_word}'),
+                UsdaFood.name.ilike(f'{first_stem}')), 0),
         (sa.or_(UsdaFood.name.ilike(f'{first_word},%'),
                 UsdaFood.name.ilike(f'{first_stem},%'),
-                UsdaFood.name.ilike(f'{first_stem}s,%')), 0),
-        (sa.or_(UsdaFood.name.ilike(f'{first_word}%'),
-                UsdaFood.name.ilike(f'{first_stem}%')), 1),
-        else_=2,
+                UsdaFood.name.ilike(f'{first_stem}s,%')), 1),
+        (sa.or_(UsdaFood.name.ilike(f'{first_word} %'),
+                UsdaFood.name.ilike(f'{first_stem} %')), 2),
+        else_=3,
     )
+
+    return type_rank, name_rank
 
 
 def _search_local(words, offset, page_size):
+    type_rank, name_rank = _relevance_order(words)
     foods = (_build_query(words)
-             .order_by(_relevance_order(words), UsdaFood.name)
+             .order_by(type_rank, name_rank, UsdaFood.name)
              .offset(offset).limit(page_size).all())
     return [f.to_search_result() for f in foods]
 
