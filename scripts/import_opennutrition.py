@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import create_app
 from app.models import UsdaFood, db
+from sqlalchemy import text
 
 TSV_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -111,6 +112,25 @@ def run():
             imported += len(batch)
 
         print(f'\nDone. {imported:,} foods imported, {skipped:,} skipped (no calories).')
+
+        print('Building FTS5 search index...')
+        db.session.execute(text('DROP TABLE IF EXISTS usda_food_fts'))
+        db.session.execute(text("""
+            CREATE VIRTUAL TABLE usda_food_fts USING fts5(
+                food_id UNINDEXED,
+                food_type UNINDEXED,
+                name,
+                alternate_names,
+                tokenize='unicode61 remove_diacritics 1'
+            )
+        """))
+        db.session.execute(text("""
+            INSERT INTO usda_food_fts(food_id, food_type, name, alternate_names)
+            SELECT food_id, food_type, name, COALESCE(alternate_names, '')
+            FROM usda_food
+        """))
+        db.session.commit()
+        print('FTS5 index built.')
 
 
 if __name__ == '__main__':

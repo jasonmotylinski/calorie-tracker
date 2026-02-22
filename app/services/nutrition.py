@@ -2,6 +2,7 @@ import re
 import requests
 import sqlalchemy as sa
 from flask import current_app
+from sqlalchemy import text
 
 from app.models import FoodItem, UsdaFood, db
 
@@ -104,52 +105,78 @@ def _parse_query(query):
 
 
 # ---------------------------------------------------------------------------
-# Local SR Legacy search
+# Local search — FTS5 with ILIKE fallback
 # ---------------------------------------------------------------------------
 
+def _fts_query(words):
+    """Build an FTS5 MATCH expression: each word as a prefix term."""
+    safe = [re.sub(r'[^\w]', '', w) for w in words]
+    safe = [w for w in safe if w]
+    if not safe:
+        return None
+    return ' '.join(f'{w}*' for w in safe)
+
+
+def _search_local(words, offset, page_size):
+    fts_q = _fts_query(words)
+    if fts_q:
+        try:
+            rows = db.session.execute(text("""
+                SELECT food_id
+                FROM usda_food_fts
+                WHERE usda_food_fts MATCH :q
+                ORDER BY
+                    CASE food_type
+                        WHEN 'everyday'   THEN 0
+                        WHEN 'prepared'   THEN 1
+                        WHEN 'restaurant' THEN 2
+                        ELSE 3
+                    END,
+                    rank
+                LIMIT :limit OFFSET :offset
+            """), {'q': fts_q, 'limit': page_size, 'offset': offset}).fetchall()
+
+            food_ids = [r[0] for r in rows]
+            if food_ids:
+                by_id = {f.food_id: f for f in
+                         UsdaFood.query.filter(UsdaFood.food_id.in_(food_ids)).all()}
+                return [by_id[fid].to_search_result() for fid in food_ids if fid in by_id]
+        except Exception:
+            pass  # FTS table not built yet — fall through to ILIKE
+
+    # ILIKE fallback (used before first import or if FTS table is missing)
+    return _search_local_ilike(words, offset, page_size)
+
+
 def _stem(word):
-    """Strip common English plural suffixes so 'eggs' matches 'Egg', etc."""
     w = word.lower()
-    if w.endswith('oes') and len(w) > 4:   # tomatoes → tomato
+    if w.endswith('oes') and len(w) > 4:
         return w[:-2]
-    if w.endswith('ies') and len(w) > 4:   # berries → berry
+    if w.endswith('ies') and len(w) > 4:
         return w[:-3] + 'y'
-    if w.endswith('s') and not w.endswith('ss') and len(w) > 3:  # eggs → egg
+    if w.endswith('s') and not w.endswith('ss') and len(w) > 3:
         return w[:-1]
     return w
 
 
-def _word_filter(word):
-    """Match a word OR its stemmed form, across name and alternate_names."""
-    stem = _stem(word)
-    terms = {word.lower(), stem}
-    clauses = []
-    for t in terms:
-        clauses.append(UsdaFood.name.ilike(f'%{t}%'))
-        clauses.append(UsdaFood.alternate_names.ilike(f'%{t}%'))
-    return sa.or_(*clauses)
+def _search_local_ilike(words, offset, page_size):
+    def word_filter(word):
+        stem = _stem(word)
+        terms = {word.lower(), stem}
+        clauses = []
+        for t in terms:
+            clauses.append(UsdaFood.name.ilike(f'%{t}%'))
+            clauses.append(UsdaFood.alternate_names.ilike(f'%{t}%'))
+        return sa.or_(*clauses)
 
-
-def _build_query(words):
-    q = UsdaFood.query
-    for word in words:
-        q = q.filter(_word_filter(word))
-    return q
-
-
-def _relevance_order(words):
     first_stem = _stem(words[0])
     first_word = words[0].lower()
-
-    # Primary: food_type — everyday staples first, then restaurant, then grocery
     type_rank = sa.case(
         (UsdaFood.food_type == 'everyday', 0),
         (UsdaFood.food_type == 'prepared', 1),
         (UsdaFood.food_type == 'restaurant', 2),
-        else_=3,  # grocery
+        else_=3,
     )
-
-    # Secondary: how closely the name starts with the search term
     name_rank = sa.case(
         (sa.or_(UsdaFood.name.ilike(f'{first_word}'),
                 UsdaFood.name.ilike(f'{first_stem}')), 0),
@@ -161,14 +188,10 @@ def _relevance_order(words):
         else_=3,
     )
 
-    return type_rank, name_rank
-
-
-def _search_local(words, offset, page_size):
-    type_rank, name_rank = _relevance_order(words)
-    foods = (_build_query(words)
-             .order_by(type_rank, name_rank, UsdaFood.name)
-             .offset(offset).limit(page_size).all())
+    q = UsdaFood.query
+    for word in words:
+        q = q.filter(word_filter(word))
+    foods = q.order_by(type_rank, name_rank, UsdaFood.name).offset(offset).limit(page_size).all()
     return [f.to_search_result() for f in foods]
 
 
@@ -247,7 +270,7 @@ def _search_nutritionix(query):
                 'x-app-key': api_key,
                 'Content-Type': 'application/json',
             },
-            timeout=10,
+            timeout=3,
         )
     except requests.RequestException:
         return []
@@ -354,32 +377,35 @@ def search_foods(query, page=1, page_size=20):
     seen_ids = {r['source_id'] for r in local}
     extra = []
 
-    # Nutritionix — natural language, surfaces branded/specific foods local DB lacks
-    try:
-        for r in _search_nutritionix(query):
-            if r['source_id'] not in seen_ids:
-                seen_ids.add(r['source_id'])
-                extra.append(r)
-    except Exception:
-        pass
+    # Only call external APIs when local results are sparse — avoids waiting
+    # for API timeouts on common foods that are already in the local DB.
+    if len(local) < 5:
+        # Nutritionix — natural language, surfaces branded/specific foods local DB lacks
+        try:
+            for r in _search_nutritionix(query):
+                if r['source_id'] not in seen_ids:
+                    seen_ids.add(r['source_id'])
+                    extra.append(r)
+        except Exception:
+            pass
 
-    # Open Food Facts — branded/packaged products
-    try:
-        for r in _search_off(query, page, page_size):
-            if r['source_id'] not in seen_ids:
-                seen_ids.add(r['source_id'])
-                extra.append(r)
-    except Exception:
-        pass
+        # Open Food Facts — branded/packaged products
+        try:
+            for r in _search_off(query, page, page_size):
+                if r['source_id'] not in seen_ids:
+                    seen_ids.add(r['source_id'])
+                    extra.append(r)
+        except Exception:
+            pass
 
-    # FDC API — Foundation foods not in SR Legacy
-    try:
-        for r in _search_fdc(query, page, page_size):
-            if r['source_id'] not in seen_ids:
-                seen_ids.add(r['source_id'])
-                extra.append(r)
-    except Exception:
-        pass
+        # FDC API — Foundation foods not in SR Legacy
+        try:
+            for r in _search_fdc(query, page, page_size):
+                if r['source_id'] not in seen_ids:
+                    seen_ids.add(r['source_id'])
+                    extra.append(r)
+        except Exception:
+            pass
 
     return (local + extra)[:page_size]
 
