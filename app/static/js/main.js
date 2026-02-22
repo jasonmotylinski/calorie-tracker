@@ -310,6 +310,11 @@ function initQuickAdd() {
     const submitBtn = document.getElementById('quick-add-submit');
     const errorEl = document.getElementById('quick-add-error');
 
+    if (!submitBtn || !caloriesInput || !errorEl) {
+        console.error('Quick add: missing required DOM elements');
+        return;
+    }
+
     submitBtn.addEventListener('click', async () => {
         const calories = parseFloat(caloriesInput.value);
         if (!calories || calories <= 0) {
@@ -328,23 +333,39 @@ function initQuickAdd() {
         submitBtn.textContent = 'Adding...';
 
         try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+
             const resp = await fetch('/api/log/quick', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ calories, name, meal_type: mt, date }),
+                signal: controller.signal,
             });
+
+            clearTimeout(timeoutId);
 
             if (resp.ok) {
                 window.location.href = `/dashboard?date=${date}`;
             } else {
-                const err = await resp.json();
-                errorEl.textContent = err.error || 'Something went wrong.';
+                let errorMsg = 'Something went wrong.';
+                try {
+                    const err = await resp.json();
+                    errorMsg = err.error || errorMsg;
+                } catch (e) {
+                    // response wasn't JSON, use default
+                }
+                errorEl.textContent = errorMsg;
                 errorEl.classList.remove('hidden');
                 submitBtn.disabled = false;
                 submitBtn.textContent = 'Add Calories';
             }
         } catch (err) {
-            errorEl.textContent = 'Something went wrong. Please try again.';
+            if (err.name === 'AbortError') {
+                errorEl.textContent = 'Request timed out. Please try again.';
+            } else {
+                errorEl.textContent = 'Network error. Please try again.';
+            }
             errorEl.classList.remove('hidden');
             submitBtn.disabled = false;
             submitBtn.textContent = 'Add Calories';
