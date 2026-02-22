@@ -88,6 +88,38 @@ class FoodItem(db.Model):
         }
 
 
+class UsdaFood(db.Model):
+    """USDA SR Legacy food database. All nutrient values are per 100g."""
+    ndb_no = db.Column(db.String(10), primary_key=True)
+    name = db.Column(db.String(300), nullable=False, index=True)
+    food_group = db.Column(db.String(100))
+    calories = db.Column(db.Float, default=0)
+    protein_g = db.Column(db.Float, default=0)
+    carbs_g = db.Column(db.Float, default=0)
+    fat_g = db.Column(db.Float, default=0)
+    fiber_g = db.Column(db.Float)
+    serving_description = db.Column(db.String(100))
+    serving_weight_g = db.Column(db.Float)
+
+    def to_search_result(self):
+        """Return a dict shaped like the old API search result."""
+        serving_g = self.serving_weight_g or 100
+        scale = serving_g / 100
+        return {
+            'name': self.name.title(),
+            'brand': self.food_group,
+            'source': 'usda',
+            'source_id': self.ndb_no,
+            'calories': round((self.calories or 0) * scale, 1),
+            'protein_g': round((self.protein_g or 0) * scale, 1),
+            'carbs_g': round((self.carbs_g or 0) * scale, 1),
+            'fat_g': round((self.fat_g or 0) * scale, 1),
+            'fiber_g': round((self.fiber_g or 0) * scale, 1) if self.fiber_g else None,
+            'serving_size': self.serving_description or '100g',
+            'serving_weight_g': serving_g,
+        }
+
+
 class FoodLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
