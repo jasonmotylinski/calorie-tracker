@@ -70,6 +70,7 @@ function initFoodSearch() {
     const date = page.dataset.date;
 
     let debounceTimer = null;
+    let searchSeq = 0;  // incremented on every new search; used to discard stale responses
 
     // Load recent foods
     loadRecent();
@@ -81,23 +82,29 @@ function initFoodSearch() {
         clearTimeout(debounceTimer);
 
         if (!q) {
+            searchSeq++;
+            resultsList.innerHTML = '';
             resultsSection.classList.add('hidden');
             recentSection.classList.remove('hidden');
             return;
         }
 
+        // Immediately clear stale results and show loading state
+        resultsList.innerHTML = '';
+        searchEmpty.classList.add('hidden');
         recentSection.classList.add('hidden');
         resultsSection.classList.remove('hidden');
         searchLoading.classList.remove('hidden');
-        searchEmpty.classList.add('hidden');
 
         debounceTimer = setTimeout(() => searchFoods(q), 300);
     });
 
     clearBtn.addEventListener('click', () => {
+        searchSeq++;
         input.value = '';
         input.focus();
         clearBtn.classList.add('hidden');
+        resultsList.innerHTML = '';
         resultsSection.classList.add('hidden');
         recentSection.classList.remove('hidden');
     });
@@ -117,11 +124,14 @@ function initFoodSearch() {
     }
 
     async function searchFoods(query) {
+        const seq = ++searchSeq;
         try {
             const resp = await fetch(`/api/foods/search?q=${encodeURIComponent(query)}`);
             const data = await resp.json();
-            searchLoading.classList.add('hidden');
 
+            if (seq !== searchSeq) return;  // a newer search has already started
+
+            searchLoading.classList.add('hidden');
             if (data.results && data.results.length > 0) {
                 searchEmpty.classList.add('hidden');
                 resultsList.innerHTML = data.results.map(item => foodCardHTML(item, false)).join('');
@@ -131,6 +141,7 @@ function initFoodSearch() {
                 resultsList.innerHTML = '';
             }
         } catch (err) {
+            if (seq !== searchSeq) return;
             searchLoading.classList.add('hidden');
             searchEmpty.classList.remove('hidden');
             resultsList.innerHTML = '';
