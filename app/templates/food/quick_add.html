@@ -2,7 +2,7 @@
 {% block title %}Quick Add Calories — Calorie Tracker{% endblock %}
 
 {% block content %}
-<div class="log-page quick-add-page" data-meal-type="{{ meal_type }}" data-date="{{ date }}">
+<div class="quick-add-page" data-meal-type="{{ meal_type }}" data-date="{{ date }}">
     <!-- Header -->
     <div class="log-header">
         <a href="{{ url_for('food.search', meal=meal_type, date=date) }}" class="back-btn">
