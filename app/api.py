@@ -213,13 +213,20 @@ def create_quick_log():
     except ValueError:
         return jsonify({'error': 'Invalid date format'}), 400
 
+    try:
+        protein_g = round(float(data.get('protein_g') or 0), 1)
+        carbs_g = round(float(data.get('carbs_g') or 0), 1)
+        fat_g = round(float(data.get('fat_g') or 0), 1)
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Invalid macro value'}), 400
+
     food_item = FoodItem(
         name=name,
         source='quick_add',
         calories=round(calories, 1),
-        protein_g=0,
-        carbs_g=0,
-        fat_g=0,
+        protein_g=protein_g,
+        carbs_g=carbs_g,
+        fat_g=fat_g,
     )
     db.session.add(food_item)
     db.session.flush()
@@ -231,9 +238,9 @@ def create_quick_log():
         servings=1,
         logged_date=log_date,
         calories=round(calories, 1),
-        protein_g=0,
-        carbs_g=0,
-        fat_g=0,
+        protein_g=protein_g,
+        carbs_g=carbs_g,
+        fat_g=fat_g,
     )
     db.session.add(log)
     db.session.commit()

@@ -309,11 +309,27 @@ function initQuickAdd() {
     const nameInput = document.getElementById('quick-name');
     const submitBtn = document.getElementById('quick-add-submit');
     const errorEl = document.getElementById('quick-add-error');
+    const macrosToggle = document.getElementById('macros-toggle');
+    const macrosFields = document.getElementById('macros-fields');
+    const macrosIcon = document.getElementById('macros-toggle-icon');
+    const proteinInput = document.getElementById('quick-protein');
+    const carbsInput = document.getElementById('quick-carbs');
+    const fatInput = document.getElementById('quick-fat');
 
     if (!submitBtn || !caloriesInput || !errorEl) {
         console.error('Quick add: missing required DOM elements');
         return;
     }
+
+    let macrosOpen = false;
+    macrosToggle.addEventListener('click', () => {
+        macrosOpen = !macrosOpen;
+        macrosFields.classList.toggle('hidden', !macrosOpen);
+        macrosIcon.innerHTML = macrosOpen
+            ? '<line x1="5" y1="12" x2="19" y2="12"/>'
+            : '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>';
+        if (macrosOpen) proteinInput.focus();
+    });
 
     submitBtn.addEventListener('click', async () => {
         const calories = parseFloat(caloriesInput.value);
@@ -328,6 +344,9 @@ function initQuickAdd() {
         const selectedMeal = document.querySelector('input[name="meal_type"]:checked');
         const mt = selectedMeal ? selectedMeal.value : mealType;
         const name = nameInput.value.trim();
+        const protein = macrosOpen ? (parseFloat(proteinInput.value) || 0) : 0;
+        const carbs = macrosOpen ? (parseFloat(carbsInput.value) || 0) : 0;
+        const fat = macrosOpen ? (parseFloat(fatInput.value) || 0) : 0;
 
         submitBtn.disabled = true;
         submitBtn.textContent = 'Adding...';
@@ -339,7 +358,7 @@ function initQuickAdd() {
             const resp = await fetch('/api/log/quick', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ calories, name, meal_type: mt, date }),
+                body: JSON.stringify({ calories, name, meal_type: mt, date, protein_g: protein, carbs_g: carbs, fat_g: fat }),
                 signal: controller.signal,
             });
 
